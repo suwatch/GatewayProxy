@@ -4,14 +4,19 @@ using System.Linq;
 using System.Web.Http;
 using System.Web.Routing;
 
-namespace geoproxy
+namespace GatewayProxy
 {
     public static class WebApiConfig
     {
         public static void Register(HttpConfiguration config)
         {
-            config.Routes.MapHttpRoute("subscriptions-operation", "subscriptions/{*path}", new { controller = "Operation", action = "Invoke" });
-            config.Routes.MapHttpRoute("providers-operation", "providers/{*path}", new { controller = "Operation", action = "Invoke" });
+            config.Routes.MapHttpRoute(
+                name: "api-values",
+                routeTemplate: "api/values/{id}",
+                defaults: new { controller = "Values", id = RouteParameter.Optional }
+            );
+
+            config.Routes.MapHttpRoute("passthru-operation", "{*path}", new { controller = "Operation", action = "Invoke" });
 
             config.Routes.MapHttpRoute(
                 name: "DefaultApi",

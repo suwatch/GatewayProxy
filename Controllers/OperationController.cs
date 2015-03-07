@@ -1,18 +1,25 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IdentityModel.Selectors;
+using System.IdentityModel.Tokens;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Claims;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web.Http;
 using Newtonsoft.Json.Linq;
 
-namespace geoproxy.Controllers
+namespace GatewayProxy.Controllers
 {
     public class OperationController : ApiController
     {
+        public const string JwtIssuer = "https://geomaster.azurewebsites.windows.net/";
+
+        public const string JwtAudience = "https://management.core.windows.net/";
         const string VersionSuffix = "-privatepreview";
         const string CurrentGeoUri = "https://geomaster.antdir0.antares-test.windows-int.net:444/";
         const string IntAppGeoUri = "https://geomaster.ant-intapp-admin.windows-int.net:444/";
@@ -37,74 +44,30 @@ namespace geoproxy.Controllers
 
         private async Task<HttpResponseMessage> InvokeInternal(HttpRequestMessage requestMessage)
         {
-            var referrer = requestMessage.Headers.Referrer;
-            if (referrer == null)
+            var authotization = requestMessage.Headers.Authorization;
+            if (authotization == null || String.IsNullOrEmpty(authotization.Scheme) || String.IsNullOrEmpty(authotization.Parameter))
             {
-                throw new InvalidOperationException("referer header is missing!");
+                throw new InvalidOperationException("Authorization header is missing!");
             }
 
-            var baseUri = String.Empty;
-            if (referrer.Host.Equals("api-current.resources.windows-int.net", StringComparison.OrdinalIgnoreCase))
+            if (!authotization.Scheme.Equals("Bearer", StringComparison.OrdinalIgnoreCase))
             {
-                baseUri = CurrentGeoUri;
-            }
-            else if (referrer.Host.Equals("api-dogfood.resources.windows-int.net", StringComparison.OrdinalIgnoreCase))
-            {
-                baseUri = IntAppGeoUri;
-            }
-            else
-            {
-                throw new InvalidOperationException("referer '" + referrer + "' is invalid!");
+                throw new InvalidOperationException("Authorization header has an invalid '" + authotization.Scheme + "' scheme!");
             }
 
-            IEnumerable<string> principalIds;
-            if (!requestMessage.Headers.TryGetValues("x-ms-client-principal-id", out principalIds))
+            var jwt = authotization.Parameter;
+            var claims = ValidateJwt(jwt, new[] { Utils.GetIssuerCertificate() });
+            var aud = claims.FirstOrDefault(c => c.Type == "aud");
+            if (aud == null || String.IsNullOrEmpty(aud.Value))
             {
-                throw new InvalidOperationException("x-ms-client-principal-id header is missing!");
+                throw new InvalidOperationException("Audience claim is missing!");
             }
 
-            var uri = requestMessage.RequestUri;
-            var query = uri.ParseQueryString();
-            var apiVersion = query["api-version"];
-            if (String.IsNullOrEmpty(apiVersion))
-            {
-                throw new InvalidOperationException("api-version query string is missing!");
-            }
-
-            var parts = apiVersion.Split('-');
-            if (parts.Length < 4)
-            {
-                throw new InvalidOperationException("api-version query string must contains at least 4 parts!");
-            }
-
-            if (!apiVersion.EndsWith(VersionSuffix, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException("api-version query string must end with '" + VersionSuffix + "'!");
-            }
-
-            query["api-version"] = apiVersion.Substring(0, apiVersion.Length - VersionSuffix.Length);
-
-            var stamp = query["stamp"];
-            if (!String.IsNullOrEmpty(stamp))
-            {
-                baseUri = String.Format("https://{0}.cloudapp.net:444/", stamp);
-                query.Remove("stamp");
-            }
-            else
-            {
-                var defaultStamp = Utils.GetDefaultStamp();
-                if (!String.IsNullOrEmpty(defaultStamp))
-                {
-                    baseUri = String.Format("https://{0}.cloudapp.net:444/", defaultStamp);
-                }
-            }
-
-            var handler = new WebRequestHandler();
-            handler.ClientCertificates.Add(Utils.GetClientCertificate());
-
-            var client = new HttpClient(handler);
-            requestMessage.RequestUri = new Uri(new Uri(baseUri), uri.AbsolutePath + '?' + query);
+            var requestUri = requestMessage.RequestUri;
+            var client = new HttpClient();
+            requestMessage.RequestUri = new Uri(new Uri(aud.Value), requestUri.PathAndQuery);
             requestMessage.Headers.Host = null;
+            requestMessage.Headers.Authorization = authotization;
 
             // These header is defined by client/server policy.  Since we are forwarding, 
             // it does not apply to the communication from this node to next.   Remove them.
@@ -145,6 +108,27 @@ namespace geoproxy.Controllers
                 headers.Remove(name);
             }
             headers.Remove("Connection");
+        }
+
+        static IEnumerable<Claim> ValidateJwt(string jwt, X509Certificate2[] issuerCers)
+        {
+            var parameters = new TokenValidationParameters();
+            parameters.CertificateValidator = X509CertificateValidator.None;
+            parameters.ValidateAudience = false;
+            //parameters.ValidAudience = JwtAudience;
+            parameters.ValidateIssuer = true;
+            parameters.ValidIssuer = JwtIssuer;
+            parameters.ValidateLifetime = true;
+            parameters.ClockSkew = TimeSpan.FromMinutes(5);
+
+            var signingTokens = new List<SecurityToken>();
+            signingTokens.AddRange(issuerCers.Select(cert => new X509SecurityToken(cert)));
+            parameters.IssuerSigningTokens = signingTokens;
+
+            var handler = new JwtSecurityTokenHandler();
+            SecurityToken result = null;
+            var principal = handler.ValidateToken(jwt, parameters, out result);
+            return principal.Claims;
         }
     }
 }

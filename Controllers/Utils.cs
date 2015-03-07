@@ -3,12 +3,11 @@ using System.Configuration;
 using System.Diagnostics;
 using System.Security.Cryptography.X509Certificates;
 
-namespace geoproxy.Controllers
+namespace GatewayProxy.Controllers
 {
     static class Utils
     {
         static X509Certificate2 _certificate;
-        static string _defaultStamp;
 
         public static void WriteLine(object arg)
         {
@@ -20,7 +19,7 @@ namespace geoproxy.Controllers
             Trace.TraceError(String.Format(DateTime.UtcNow.ToString("s") + " " + format, args));
         }
 
-        public static X509Certificate2 GetClientCertificate()
+        public static X509Certificate2 GetIssuerCertificate()
         {
             if (_certificate == null)
             {
@@ -28,7 +27,7 @@ namespace geoproxy.Controllers
                 if (String.IsNullOrEmpty(thumbprint))
                 {
                     // some hard coded default for testing
-                    thumbprint = "AB1287A0C4CE358D46CE270AE9F8A1B8AA59F10F";
+                    thumbprint = "D8D2125683F7169186DEE9469F0070F1C4302311";
                 }
 
                 X509Store store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
@@ -53,16 +52,6 @@ namespace geoproxy.Controllers
             }
 
             return new X509Certificate2(_certificate);
-        }
-
-        public static string GetDefaultStamp()
-        {
-            if (_defaultStamp == null)
-            {
-                _defaultStamp = ConfigurationManager.AppSettings["WEBSITE_DEFAULT_STAMP"] ?? String.Empty;
-            }
-
-            return _defaultStamp;
         }
     }
 }
