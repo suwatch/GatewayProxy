@@ -44,30 +44,25 @@ namespace GatewayProxy.Controllers
 
         private async Task<HttpResponseMessage> InvokeInternal(HttpRequestMessage requestMessage)
         {
-            var authotization = requestMessage.Headers.Authorization;
-            if (authotization == null || String.IsNullOrEmpty(authotization.Scheme) || String.IsNullOrEmpty(authotization.Parameter))
+            IEnumerable<string> jwts;
+            if (!requestMessage.Headers.TryGetValues("x-ms-waws-jwt", out jwts) || String.IsNullOrEmpty(jwts.FirstOrDefault()))
             {
-                throw new InvalidOperationException("Authorization header is missing!");
+                throw new InvalidOperationException("x-ms-waws-jwt header is missing!");
             }
 
-            if (!authotization.Scheme.Equals("Bearer", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException("Authorization header has an invalid '" + authotization.Scheme + "' scheme!");
-            }
+            var jwt = jwts.FirstOrDefault();
+            //var claims = ValidateJwt(jwt, new[] { Utils.GetIssuerCertificate() });
+            //var aud = claims.FirstOrDefault(c => c.Type == "aud");
+            //if (aud == null || String.IsNullOrEmpty(aud.Value))
+            //{
+            //    throw new InvalidOperationException("Audience claim is missing!");
+            //}
+            //var uri = new Uri(aud.Value);
+            var uri = new Uri(jwt);
 
-            var jwt = authotization.Parameter;
-            var claims = ValidateJwt(jwt, new[] { Utils.GetIssuerCertificate() });
-            var aud = claims.FirstOrDefault(c => c.Type == "aud");
-            if (aud == null || String.IsNullOrEmpty(aud.Value))
-            {
-                throw new InvalidOperationException("Audience claim is missing!");
-            }
-
-            var requestUri = requestMessage.RequestUri;
             var client = new HttpClient();
-            requestMessage.RequestUri = new Uri(new Uri(aud.Value), requestUri.PathAndQuery);
+            requestMessage.RequestUri = new Uri(uri, requestMessage.RequestUri.PathAndQuery);
             requestMessage.Headers.Host = null;
-            requestMessage.Headers.Authorization = authotization;
 
             // These header is defined by client/server policy.  Since we are forwarding, 
             // it does not apply to the communication from this node to next.   Remove them.
@@ -108,6 +103,7 @@ namespace GatewayProxy.Controllers
                 headers.Remove(name);
             }
             headers.Remove("Connection");
+            headers.Remove("Transfer-Encoding");
         }
 
         static IEnumerable<Claim> ValidateJwt(string jwt, X509Certificate2[] issuerCers)
