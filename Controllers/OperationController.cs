@@ -59,18 +59,12 @@ namespace GatewayProxy.Controllers
             //}
             //var uri = new Uri(aud.Value);
             var claims = GetClaims(jwt);
-            var uri = new Uri(claims.Value<string>("aud"));
+            var uri = new Uri(claims.Value<string>("fwd") ?? claims.Value<string>("aud"));
 
             var client = new HttpClient();
             var originalUrl = requestMessage.RequestUri;
             requestMessage.RequestUri = new Uri(uri, requestMessage.RequestUri.PathAndQuery);
             requestMessage.Headers.Host = null;
-            requestMessage.Headers.Remove("DISGUISED-HOST");
-            requestMessage.Headers.Remove("X-ARR-LOG-ID");
-            requestMessage.Headers.Remove("X-LiveUpgrade");
-            requestMessage.Headers.Remove("X-SITE-DEPLOYMENT-ID");
-            requestMessage.Headers.Remove("X-Forwarded-For");
-            requestMessage.Headers.Remove("X-ARR-SSL");
 
             // These header is defined by client/server policy.  Since we are forwarding, 
             // it does not apply to the communication from this node to next.   Remove them.
@@ -114,6 +108,16 @@ namespace GatewayProxy.Controllers
             }
             headers.Remove("Connection");
             headers.Remove("Transfer-Encoding");
+
+            if (headers is HttpRequestHeaders)
+            {
+                headers.Remove("DISGUISED-HOST");
+                headers.Remove("X-ARR-LOG-ID");
+                headers.Remove("X-LiveUpgrade");
+                headers.Remove("X-SITE-DEPLOYMENT-ID");
+                headers.Remove("X-Forwarded-For");
+                headers.Remove("X-ARR-SSL");
+            }
         }
 
         static JObject GetClaims(string jwtToken)
