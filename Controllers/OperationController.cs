@@ -19,10 +19,10 @@ namespace GatewayProxy.Controllers
     {
         public const string JwtIssuer = "https://geomaster.azurewebsites.windows.net/";
 
-        public const string JwtAudience = "https://management.core.windows.net/";
-        const string VersionSuffix = "-privatepreview";
-        const string CurrentGeoUri = "https://geomaster.antdir0.antares-test.windows-int.net:444/";
-        const string IntAppGeoUri = "https://geomaster.ant-intapp-admin.windows-int.net:444/";
+        private const char base64Character62 = '+';
+        private const char base64Character63 = '/';
+        private const char base64UrlCharacter62 = '-';
+        private const char base64UrlCharacter63 = '_';
 
         [HttpGet, HttpPost, HttpPut, HttpHead, HttpPatch, HttpOptions, HttpDelete]
         public async Task<HttpResponseMessage> Invoke(HttpRequestMessage requestMessage)
@@ -58,7 +58,8 @@ namespace GatewayProxy.Controllers
             //    throw new InvalidOperationException("Audience claim is missing!");
             //}
             //var uri = new Uri(aud.Value);
-            var uri = new Uri(jwt);
+            var claims = GetClaims(jwt);
+            var uri = new Uri(claims.Value<string>("aud"));
 
             var client = new HttpClient();
             requestMessage.RequestUri = new Uri(uri, requestMessage.RequestUri.PathAndQuery);
@@ -104,6 +105,25 @@ namespace GatewayProxy.Controllers
             }
             headers.Remove("Connection");
             headers.Remove("Transfer-Encoding");
+        }
+
+        static JObject GetClaims(string jwtToken)
+        {
+            var base64 = jwtToken.Split('.')[1];
+
+            // fixup
+            int mod4 = base64.Length % 4;
+            if (mod4 > 0)
+            {
+                base64 += new string('=', 4 - mod4);
+            }
+
+            // decode url escape char
+            base64 = base64.Replace(base64UrlCharacter62, base64Character62);
+            base64 = base64.Replace(base64UrlCharacter63, base64Character63);
+
+            var json = Encoding.UTF8.GetString(Convert.FromBase64String(base64));
+            return JObject.Parse(json);
         }
 
         static IEnumerable<Claim> ValidateJwt(string jwt, X509Certificate2[] issuerCers)
